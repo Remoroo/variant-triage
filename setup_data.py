@@ -2,13 +2,14 @@
 
 Pulls two public datasets:
 
-  1. ClinVar VCF (GRCh38)  —  ~90 MB gzipped.
-     https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz
+  1. ClinVar variant_summary (tab-delimited)  —  ~440 MB gzipped.
+     https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz
 
-  2. REVEL scores  —  ~200 MB zipped.
-     Published under Zenodo DOI 10.5281/zenodo.7072985.
-     (Pre-computed pathogenicity scores for ~82 M possible missense
-     variants in the human genome.)
+  2. REVEL scores  —  ~670 MB zipped (Zenodo record 7072866;
+     DOI 10.5281/zenodo.7072866).
+     Pre-computed pathogenicity scores for ~82 M possible missense
+     variants in the human genome. Freely available for
+     non-commercial use — see `https://sites.google.com/site/revelgenomics/`.
 
 Then:
 
@@ -25,9 +26,10 @@ Then:
 Run once:
     python setup_data.py
 
-The raw downloads take ~5-10 minutes on a home connection; the
-join + feature-derivation step takes ~3 minutes on Apple Silicon.
-Output is ~15 MB of parquet, comfortably within repo-local storage.
+The raw downloads take ~10-20 minutes on a home connection (ClinVar
++ REVEL together is about 1.1 GB). The join + feature-derivation step
+takes ~3-5 minutes on Apple Silicon. Output is ~15 MB of parquet,
+comfortably within repo-local storage.
 """
 from __future__ import annotations
 
@@ -39,13 +41,10 @@ import urllib.request
 import zipfile
 from pathlib import Path
 
-CLINVAR_VCF_URL = (
-    "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/vcf_GRCh38/clinvar.vcf.gz"
-)
 CLINVAR_SUMMARY_URL = (
     "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz"
 )
-REVEL_URL = "https://zenodo.org/records/7072985/files/revel-v1.3_all_chromosomes.zip"
+REVEL_URL = "https://zenodo.org/records/7072866/files/revel-v1.3_all_chromosomes.zip"
 
 DATA_DIR = Path(__file__).parent / "data"
 RAW_DIR = DATA_DIR / "raw"
