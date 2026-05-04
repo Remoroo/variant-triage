@@ -19,7 +19,16 @@ from __future__ import annotations
 
 import numpy as np
 
+from data import FEATURE_COLS
+
+GENE_ID_COL_INDEX = FEATURE_COLS.index("gene_id")
+CHROM_ID_COL_INDEX = FEATURE_COLS.index("chrom_id")
+CONSEQUENCE_COL_INDEX = FEATURE_COLS.index("consequence_id")
+
+# Indexes that LightGBM should treat as categorical when fitting.
+CAT_FEATURE_INDICES = (GENE_ID_COL_INDEX, CHROM_ID_COL_INDEX, CONSEQUENCE_COL_INDEX)
+
 
 def transform(X: np.ndarray) -> np.ndarray:
-    """Identity baseline. Replace / extend with engineered features."""
+    """Identity baseline (REVEL + gene_id columns are already in X)."""
     return X.astype(np.float32, copy=False)

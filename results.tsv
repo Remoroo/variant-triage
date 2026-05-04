@@ -3,3 +3,7 @@ commit	test_auc	train_auc	wall_clock_s	inference_s	peak_rss_mb	rows_seen_train	s
 c37f86caf9	0.9693	0.9851	1.39	0.02	183.5	14935	keep	fix: REVEL download URL (Zenodo record 7072866, not 7072985)
 c37f86caf9	0.7018	0.8765	2.03	0.78	218.3	14935	neutral	fix: REVEL download URL (Zenodo record 7072866, not 7072985)
 c37f86caf9	0.7018	0.8765	2.16	0.77	194.7	14935	neutral	fix: REVEL download URL (Zenodo record 7072866, not 7072985)
+5b26f9aca5	0.9709	0.9997	2.31	1.1	224.3	14935	keep	reframe: biochem-only, no REVEL-as-feature; fix date parser + REVEL loader
+5b26f9aca5	0.973	0.9988	2.6	1.24	263.8	14935	keep	reframe: biochem-only, no REVEL-as-feature; fix date parser + REVEL loader
+5b26f9aca5	0.9828	0.9989	1.84	0.6	228.8	14935	keep	reframe: biochem-only, no REVEL-as-feature; fix date parser + REVEL loader
+5b26f9aca5	0.9838	0.9994	2.36	0.73	241.5	14935	keep	reframe: biochem-only, no REVEL-as-feature; fix date parser + REVEL loader

@@ -4,3 +4,18 @@ __pycache__/
 *.pyc
 .venv/
 .DS_Store
+
+# Remoroo CLI — recommended ignores
+.remoroo/
+venv/
+env/
+*.pyo
+.mypy_cache/
+.pytest_cache/
+.ruff_cache/
+.tox/
+.nox/
+*.egg-info/
+node_modules/
+results.tsv
+Thumbs.db

@@ -25,13 +25,14 @@ def build_model() -> Any:
     """Returns an unfitted LightGBM classifier configured for 1 thread."""
     import lightgbm as lgb
     return lgb.LGBMClassifier(
-        n_estimators=800,
-        learning_rate=0.03,
-        num_leaves=127,
-        min_data_in_leaf=30,
-        feature_fraction=0.9,
-        bagging_fraction=0.9,
+        n_estimators=4000,
+        learning_rate=0.02,
+        num_leaves=63,
+        min_data_in_leaf=20,
+        feature_fraction=0.85,
+        bagging_fraction=0.85,
         bagging_freq=5,
+        reg_lambda=1.0,
         objective="binary",
         n_jobs=1,
         verbosity=-1,

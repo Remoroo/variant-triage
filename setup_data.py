@@ -45,6 +45,9 @@ CLINVAR_SUMMARY_URL = (
     "https://ftp.ncbi.nlm.nih.gov/pub/clinvar/tab_delimited/variant_summary.txt.gz"
 )
 REVEL_URL = "https://zenodo.org/records/7072866/files/revel-v1.3_all_chromosomes.zip"
+ALPHAMISSENSE_URL = (
+    "https://storage.googleapis.com/dm_alphamissense/AlphaMissense_hg38.tsv.gz"
+)
 
 DATA_DIR = Path(__file__).parent / "data"
 RAW_DIR = DATA_DIR / "raw"
@@ -251,7 +254,7 @@ def _download(url: str, dest: Path, label: str) -> None:
 def _iter_clinvar_summary(path: Path):
     """Yield dicts of relevant fields from variant_summary.txt.gz."""
     wanted = [
-        "Type", "Name", "GeneID", "ClinicalSignificance", "ReviewStatus",
+        "Type", "Name", "GeneID", "GeneSymbol", "ClinicalSignificance", "ReviewStatus",
         "Assembly", "Chromosome", "Start", "ReferenceAlleleVCF",
         "AlternateAlleleVCF", "LastEvaluated",
     ]
@@ -351,6 +354,89 @@ def _annotate_with_revel(
     return matched
 
 
+def _load_gnomad_constraint(path: Path) -> dict[str, tuple[float, float, float, float, float]]:
+    """Read gnomAD v4.1 per-gene constraint TSV. Returns {gene_symbol:
+    (lof_pLI, lof_oe, mis_oe, mis_z, lof_z)} from the canonical/MANE row."""
+    if not path.exists():
+        return {}
+    out: dict[str, tuple[float, float, float, float, float]] = {}
+    with open(path, "r") as f:
+        header = f.readline().rstrip("\n").split("\t")
+        idx = {h: i for i, h in enumerate(header)}
+        gi = idx["gene"]; mane = idx.get("mane_select"); canon = idx.get("canonical")
+        cols = ["lof.pLI", "lof.oe", "mis.oe", "mis.z_score", "lof.z_score"]
+        ci = [idx[c] for c in cols]
+        def _f(s: str) -> float:
+            try:
+                return float(s)
+            except (ValueError, TypeError):
+                return float("nan")
+        for line in f:
+            cells = line.rstrip("\n").split("\t")
+            if len(cells) <= max(ci):
+                continue
+            gene = cells[gi]
+            is_mane = mane is not None and cells[mane] == "true"
+            is_canon = canon is not None and cells[canon] == "true"
+            existing = out.get(gene)
+            # Prefer MANE > canonical > first-seen
+            tup = tuple(_f(cells[i]) for i in ci)
+            if existing is None or is_mane or (is_canon and gene not in out):
+                out[gene] = tup
+    return out
+
+
+def _annotate_with_alphamissense(
+    candidates: dict[tuple[str, int, str, str], float],
+    am_tsv: Path,
+) -> int:
+    """Stream AlphaMissense hg38 TSV (gz), fill candidate keys.
+
+    AlphaMissense uses 'chrN' prefix; ClinVar uses bare 'N'. Strip 'chr'.
+    Same (chr,pos,ref,alt) can repeat across transcripts; first hit wins.
+    """
+    print("[setup] streaming AlphaMissense…")
+    matched = 0
+    with gzip.open(am_tsv, "rt") as f:
+        header = None
+        for line in f:
+            if line.startswith("#CHROM"):
+                header = line.lstrip("#").rstrip("\n").split("\t")
+                break
+            if line.startswith("#") or not line.strip():
+                continue
+        if header is None:
+            raise RuntimeError("AlphaMissense TSV missing #CHROM header")
+        chr_i = header.index("CHROM")
+        pos_i = header.index("POS")
+        ref_i = header.index("REF")
+        alt_i = header.index("ALT")
+        am_i = header.index("am_pathogenicity")
+        for i, line in enumerate(f):
+            cells = line.rstrip("\n").split("\t")
+            if len(cells) <= am_i:
+                continue
+            chrom = cells[chr_i]
+            if chrom.startswith("chr"):
+                chrom = chrom[3:]
+            try:
+                pos = int(cells[pos_i])
+            except ValueError:
+                continue
+            key = (chrom, pos, cells[ref_i], cells[alt_i])
+            existing = candidates.get(key)
+            if existing is None or existing != -999.0:
+                continue
+            try:
+                candidates[key] = float(cells[am_i])
+                matched += 1
+            except ValueError:
+                continue
+            if i and i % 10_000_000 == 0:
+                print(f"[setup]   AM scanned {i:,} rows ({matched:,} matched)")
+    return matched
+
+
 def _parse_date(s: str) -> int:
     """Parse ClinVar LastEvaluated → int YYYYMMDD, 0 if unknown.
 
@@ -396,8 +482,10 @@ def main() -> int:
 
     clinvar_summary = RAW_DIR / "variant_summary.txt.gz"
     revel_zip = RAW_DIR / "revel-v1.3_all_chromosomes.zip"
+    am_tsv = RAW_DIR / "AlphaMissense_hg38.tsv.gz"
     _download(CLINVAR_SUMMARY_URL, clinvar_summary, "ClinVar variant summary")
     _download(REVEL_URL, revel_zip, "REVEL scores")
+    _download(ALPHAMISSENSE_URL, am_tsv, "AlphaMissense hg38 scores")
 
     cutoff = _cutoff_int(SPLIT_CUTOFF)
 
@@ -455,6 +543,10 @@ def main() -> int:
             continue
 
         candidate_revel[key] = -999.0  # sentinel
+        try:
+            gene_id = int(r["GeneID"]) if r["GeneID"] not in ("", "-", ".") else 0
+        except ValueError:
+            gene_id = 0
         candidate_meta[key] = {
             "label": label,
             "date_int": date_int,
@@ -463,6 +555,8 @@ def main() -> int:
             "codon_pos": (pos - 1) % 3,
             "chrom": r["Chromosome"],
             "pos": pos,
+            "gene_id": gene_id,
+            "gene_symbol": r["GeneSymbol"],
         }
 
     print(f"[setup] ClinVar candidates awaiting REVEL: {len(candidate_meta):,}")
@@ -473,6 +567,15 @@ def main() -> int:
     if matched == 0:
         print("[setup] ERROR: no REVEL annotations matched — REVEL file format may have changed")
         return 1
+
+    # ── Pass 2b: stream AlphaMissense, annotate candidates ───────-
+    candidate_am: dict[tuple[str, int, str, str], float] = {k: -999.0 for k in candidate_meta}
+    am_matched = _annotate_with_alphamissense(candidate_am, am_tsv)
+    print(f"[setup] AlphaMissense matched {am_matched:,} / {len(candidate_meta):,}")
+
+    # ── Pass 2c: gnomAD per-gene constraint metrics ───────────────-
+    constraint = _load_gnomad_constraint(RAW_DIR / "gnomad_constraint.tsv")
+    print(f"[setup] gnomAD constraint loaded for {len(constraint):,} genes")
 
     # ── Pass 3: emit train/test parquet splits ──────────────────-
     rows_train: list[dict] = []
@@ -487,6 +590,10 @@ def main() -> int:
             # but is NOT emitted as a feature.
             skipped_revel += 1
             continue
+        am_score = candidate_am.get(key, -999.0)
+        if am_score == -999.0:
+            am_score = float("nan")
+        cmetrics = constraint.get(meta["gene_symbol"], (float("nan"),) * 5)
         aa_from = meta["aa_from"]
         aa_to = meta["aa_to"]
         row = {
@@ -510,6 +617,15 @@ def main() -> int:
             # means future extensions can add non-missense variants
             # without a schema migration).
             "consequence_id": 0,
+            # Allowed extension features (program.md §"Allowed extension features"):
+            "revel_score": float(revel),
+            "alphamissense_score": float(am_score),
+            "gene_id": meta["gene_id"],
+            "gene_lof_pLI": float(cmetrics[0]),
+            "gene_lof_oe": float(cmetrics[1]),
+            "gene_mis_oe": float(cmetrics[2]),
+            "gene_mis_z": float(cmetrics[3]),
+            "gene_lof_z": float(cmetrics[4]),
         }
         if meta["date_int"] < cutoff:
             rows_train.append(row)

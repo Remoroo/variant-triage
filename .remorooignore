@@ -1,0 +1,18 @@
+# Remoroo blocklist — paths here are hidden from the agent.
+# Same syntax as .gitignore. Edit by hand or via `remoroo block <pattern>`.
+# To disable Remoroo's privacy guard entirely, leave this file empty.
+
+# Recommended defaults (auto-seeded on first run):
+.env
+.env.*
+*.pem
+*.key
+id_rsa*
+*.crt
+secrets/
+.aws/
+.ssh/
+credentials*
+.netrc
+.npmrc
+*.kdbx

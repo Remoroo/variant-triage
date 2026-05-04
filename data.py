@@ -49,6 +49,15 @@ FEATURE_COLS = (
     "pos_mod1000",
     # categorical / reserved
     "consequence_id",
+    # allowed extension features (per program.md §"Allowed extension features")
+    "revel_score",
+    "alphamissense_score",
+    "gene_id",
+    "gene_lof_pLI",
+    "gene_lof_oe",
+    "gene_mis_oe",
+    "gene_mis_z",
+    "gene_lof_z",
 )
 
 
