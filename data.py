@@ -1,21 +1,27 @@
 """Locked variant-triage data loaders. DO NOT EDIT.
 
 Canonical time-holdout split:
-    - train: ClinVar variants first-submitted <  2024-01-01
-    - test : ClinVar variants first-submitted >= 2024-01-01
+    - train: ClinVar variants last-evaluated <  2024-01-01
+    - test : ClinVar variants last-evaluated >= 2024-01-01
     Both restricted to:
       - missense variants only (molecular consequence == missense)
       - ≥ 2-star review status (criteria_provided_multiple_submitters_no_conflicts
-        OR reviewed_by_expert_panel)
-      - clinical_significance ∈ {Pathogenic, Likely_pathogenic, Benign, Likely_benign}
-      - a REVEL score is available (drop variants with no meta-predictor score)
+        OR reviewed_by_expert_panel OR practice_guideline)
+      - clinical_significance ∈ {Pathogenic, Likely_pathogenic,
+        Pathogenic/Likely_pathogenic, Benign, Likely_benign,
+        Benign/Likely_benign}
+      - a REVEL score is available in the raw join (keeps the split
+        aligned with REVEL-only reference numbers), even though REVEL
+        itself is NOT exposed as a feature in this benchmark
 
 Reads from `data/splits/{train,test}.parquet` produced by setup_data.py.
 The agent never directly imports `get_test_split()` for test-set labels;
 only the harness does. `get_train_split()` is fair game.
 
 Feature schema is frozen: if you want more features, derive them in
-features.py from these columns.
+features.py from these columns. The parquet deliberately excludes REVEL
+and other meta-predictor scores — the benchmark is whether the engine
+can reconstruct REVEL-class performance from raw biochemistry.
 """
 from __future__ import annotations
 
@@ -27,11 +33,7 @@ SPLITS_DIR = Path(__file__).parent / "data" / "splits"
 
 LABEL_COL = "label"
 FEATURE_COLS = (
-    "revel",
-    "gnomad_af",
-    "gnomad_popmax_af",
-    "consequence_id",
-    "codon_pos",
+    # biochemistry of the amino-acid substitution
     "aa_from_hydropathy",
     "aa_to_hydropathy",
     "hydropathy_delta",
@@ -39,6 +41,14 @@ FEATURE_COLS = (
     "aa_to_charge",
     "charge_delta",
     "aa_volume_delta",
+    "grantham_distance",
+    "blosum62_score",
+    # positional / genomic context
+    "codon_pos",
+    "chrom_id",
+    "pos_mod1000",
+    # categorical / reserved
+    "consequence_id",
 )
 
 

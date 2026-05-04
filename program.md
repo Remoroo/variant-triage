@@ -1,20 +1,25 @@
 # Variant Triage — Constrained Clinical-Genomics Classification
 
-> **Status:** iterating · harness locked, baseline pending overnight run.
+> **Status:** iterating · harness locked, biochem-only baseline measured
+> at **0.7018 AUC** (13 features, 14 935 train rows, 2 s LightGBM on 1
+> core). REVEL-alone reference on the same held-out split: **0.9716 AUC**.
 >
-> *Given a human missense variant + standard annotations (REVEL, gnomAD,
-> conservation, protein context), predict pathogenicity on a ClinVar
-> time-holdout test set. Beat the **REVEL-alone floor (AUC ≈ 0.85)** and
-> push toward **AlphaMissense-class performance (AUC ≥ 0.92)** — using
-> **a single CPU core, 4 GB of RAM, and 10 minutes of training time** on
-> an Apple Silicon Mac.*
+> *Given a human missense variant and only **raw biochemistry + codon
+> position** (hydropathy, charge, Grantham distance, BLOSUM62, genomic
+> position), rediscover REVEL-class pathogenicity prediction on a
+> ClinVar time-holdout test set. No REVEL, no gnomAD, no conservation
+> scores, no meta-predictor features — just what you can compute from
+> the AA substitution and its position. Single CPU core, 4 GB RAM,
+> 10 minutes of training time on an Apple Silicon Mac.*
 
-This benchmark is the classical-ML core of the variant-classification
-problem: same input schema commercial tools like
-[Deriva](https://deriva.ai) use as features (population frequency,
-meta-predictor scores, protein context), but scored against a **locked
-time-holdout split** so the engine can't peek into future ClinVar
-submissions.
+This is the classical-ML variant-classification problem stripped to
+first principles. REVEL (Ioannidis 2016) is the reference ceiling
+because it already ensembles 13 component scores trained on hundreds
+of thousands of curated variants. AlphaMissense (Cheng 2023) beats it
+because it fine-tunes a protein-language model on Google's TPU pods.
+This benchmark asks a different question: starting from the 20×20
+substitution matrix and one CPU core, how close to REVEL-class can an
+autonomous engine get in ten minutes?
 
 ## Single entry point
 
@@ -38,14 +43,25 @@ python run.py
 
 ## Headline metric — `test_auc` on LOCKED ClinVar 2024+ split
 
-ROC AUC against the held-out ClinVar variants submitted
+ROC AUC against the 47 254 held-out ClinVar variants last-evaluated
 2024-01-01 onwards. Higher = better.
 
-| Target | Source / reference |
+| Target | What it means |
 |---|---|
-| **0.85** | REVEL alone (Ioannidis 2016) on 2024+ time-split (degraded vs published 0.89 because of time-drift) |
-| **0.92** | AlphaMissense (Cheng et al., *Science* 2023) — approx. time-split performance |
-| **0.95** | Stretch — top-tier ensembles + population frequency priors |
+| **0.70** | Biochem-only LightGBM baseline (the floor the engine starts from) |
+| **0.80** | 2010-era single predictors (SIFT ~0.82, PolyPhen-2 ~0.85 on similar splits) — marks `keep` in the harness |
+| **0.90** | Middle-tier meta-predictors (MutationTaster, CADD on rare variants) |
+| **0.97** | REVEL reference ceiling (Ioannidis 2016) — uses REVEL's ensemble directly; unreachable without a meta-predictor feature |
+
+Published reference lineage (for context; the engine competes with the
+*quality* of these predictors, not by using their scores):
+
+- **REVEL** (Ioannidis et al., *AJHG* 2016) — ensemble of 13 component
+  scores, 0.9716 AUC on this time-holdout.
+- **AlphaMissense** (Cheng et al., *Science* 2023) — zero-shot PLM-
+  derived scores, ~0.92-0.94 AUC on ClinVar time-splits.
+- **SIFT** (Kumar 2009), **PolyPhen-2** (Adzhubei 2010) — the classical
+  single-score predictors at the 0.80 line.
 
 Cross-checks (do not inform the optimiser):
 
@@ -87,36 +103,61 @@ rows are bugs.
 | `model.py` | no | the agent's playground (booster / MLP / blends) |
 | `train.py` | no | the agent's playground (CV, early stopping, stacking) |
 
-## Starter feature set (in the agent's playground)
+## Starter feature set (13 columns, no meta-predictors)
 
 Included out of the box via `features.transform()`:
 
-- **`revel`** — REVEL meta-predictor score (2016), 0-1 pathogenicity.
-- **`gnomad_af`** — gnomAD v4 allele frequency (global), −1 if absent.
-- **`gnomad_popmax_af`** — gnomAD v4 popmax AF, −1 if absent.
-- **`consequence_id`** — integer-encoded molecular consequence
-  (missense, stop_gained, start_lost, inframe_del, ...).
-- **`codon_pos`** — 0 / 1 / 2 codon position of the substituted base.
-- **`aa_from_hydropathy`, `aa_to_hydropathy`, `hydropathy_delta`** —
-  Kyte-Doolittle scale for source + target amino acids + the delta.
-- **`aa_from_charge`, `aa_to_charge`, `charge_delta`** — integer charge
-  at physiological pH (-1, 0, +1).
-- **`aa_volume_delta`** — Grantham-style AA volume difference.
+Substitution biochemistry (9 cols):
 
-All real-valued, pre-normalised in `features.transform()`. The agent
-can add interactions, polynomial expansions, protein-level rolling
-features, log-transforms — whatever it wants — inside `features.py`.
+- **`aa_from_hydropathy`, `aa_to_hydropathy`, `hydropathy_delta`** —
+  Kyte-Doolittle hydropathy index for source + target amino acids.
+- **`aa_from_charge`, `aa_to_charge`, `charge_delta`** — integer charge
+  at physiological pH (−1, 0, +1).
+- **`aa_volume_delta`** — Grantham-style AA volume difference (Å³).
+- **`grantham_distance`** — Grantham (1974) combined composition /
+  polarity / volume distance (0-215).
+- **`blosum62_score`** — log-odds of this substitution in conserved
+  protein alignments (Henikoff & Henikoff 1992).
+
+Positional / genomic context (3 cols):
+
+- **`codon_pos`** — 0 / 1 / 2 codon position of the substituted base.
+- **`chrom_id`** — integer chromosome id (1-22 + X=23 + Y=24 + MT=25).
+- **`pos_mod1000`** — genomic position modulo 1000, a cheap proxy for
+  CpG-island / local-context effects.
+
+Reserved (1 col, always 0 today):
+
+- **`consequence_id`** — molecular consequence id. Only missense
+  variants pass the ClinVar filter today; the column is kept so future
+  extensions to `stop_gained` / `inframe_del` don't need a schema bump.
+
+REVEL, gnomAD frequencies, conservation scores (GERP, PhyloP,
+PhastCons), SpliceAI outputs and other meta-predictor scores are
+**deliberately omitted** from the schema — they would collapse the
+benchmark to a one-liner (REVEL alone already scores 0.9716 AUC).
+The engine's playground (`features.py`) can add interactions,
+polynomial expansions, row-level aggregates, transcript-level rolling
+statistics — but cannot add any new external score source.
 
 ## Known failure modes (document as you hit them)
 
-- **Gene-symbol leakage**: if the agent one-hot-encodes gene symbol,
-  it'll overfit to genes seen in train. The time-split helps but
-  doesn't eliminate it — new variants in familiar genes are easier.
-  Prefer gene-level frequency features (e.g. intolerance Z-score)
-  over raw symbols.
-- **Review-status leakage**: ClinVar `review_status` correlates with
-  label quality. It is NOT included in the features (the harness
-  filters it out in `data.py`) — don't try to reintroduce it.
+- **Overfitting on 15 K training rows**: with only 14 935 train
+  variants and a 47 254-row test split, the LightGBM baseline already
+  shows a 0.17 AUC train/test gap. Aggressive regularisation (fewer
+  leaves, larger `min_data_in_leaf`, stronger bagging) or Bayesian
+  boosting with shrinkage should help. Out-of-fold predictions via
+  k-fold CV are a good alternative to the static 90/10 split the
+  baseline uses.
+- **Chromosome-id as a leakage proxy**: `chrom_id` is a valid signal
+  (some chromosomes are more disease-enriched in ClinVar) but it
+  *also* correlates with per-gene class imbalance. Treat with
+  scepticism; monitor whether `chrom_id` features dominate feature
+  importance at the expense of biochemistry.
+- **No meta-predictor features**: the benchmark enforces this via the
+  parquet schema. Trying to reintroduce REVEL / CADD / SpliceAI via
+  `features.py` is cheating. The engine's playground only gets the 13
+  primitives from `FEATURE_COLS`.
 - **Time drift**: test set is post-2024; some novel genes / rare
   consequences may be under-represented in train. A held-out
   calibration fold from the train set is a good idea.
@@ -132,6 +173,8 @@ features, log-transforms — whatever it wants — inside `features.py`.
 - **Jaganathan et al., *Cell* 2019** — SpliceAI, the splice-effect
   companion predictor (not scored here; can be an added feature).
 
-The interesting Pareto point is **AlphaMissense-class accuracy on
-a laptop in ten minutes** — no GPU, no foundation-model fine-tuning,
-just classical ML on public annotations.
+The interesting Pareto point is **REVEL-class accuracy from biochemistry
+alone, on a laptop in ten minutes** — no GPU, no foundation model, no
+REVEL-as-a-feature shortcut. The ceiling is real; REVEL already did
+the hard work in 2016. The question is how much of that work the
+engine can reconstruct from first principles in a constrained loop.

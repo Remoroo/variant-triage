@@ -227,7 +227,9 @@ def run() -> bool:
         score = auc(y_te, scores.astype(np.float64))
         row["test_auc"] = round(float(score), 4)
         row["peak_rss_mb"] = round(peak_box[0], 1)
-        row["status"] = "keep" if score >= 0.85 else "neutral"
+        # Threshold ~ 2010-era single-predictor AUC (SIFT/PolyPhen-2).
+        # Biochem-only LightGBM baseline measures ~0.70 on this split.
+        row["status"] = "keep" if score >= 0.80 else "neutral"
         print(json.dumps(row, indent=2))
         _append(row)
         return True
