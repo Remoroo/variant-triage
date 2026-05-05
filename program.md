@@ -216,7 +216,7 @@ stacking ensembles.
 - **Cheng et al., *Science* 2023** — AlphaMissense. Zero-shot scores
   for 71 M possible missense variants, ~0.92 AUC on ClinVar time-splits.
 - **Pejaver et al., *AJHG* 2020** — calibrated ACMG thresholds; the
-  published pipeline that downstream tools like Deriva wrap around.
+  the published threshold framework all downstream tools wrap around.
 - **Jaganathan et al., *Cell* 2019** — SpliceAI, the splice-effect
   companion predictor (not scored here; can be an added feature).
 
